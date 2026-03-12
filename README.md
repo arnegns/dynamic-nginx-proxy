@@ -69,11 +69,19 @@ ROUTE_1_HEADERS="X-Foo: bar, X-Bar: baz"
 ROUTE_1_STRIP_PREFIX=true
 ROUTE_1_REWRITE="^/prometheus/(.*) /$1"
 ROUTE_1_TIMEOUT=30s
+ROUTE_1_PROXY_SSL_SERVER_NAME=on
+ROUTE_1_PROXY_SSL_NAME=prometheus.internal
+ROUTE_1_HOST=prometheus.internal
 
 # Route 2: API backend
 ROUTE_2_PATH=/api
 ROUTE_2_DEST=http://backend:8080/
 ROUTE_2_TIMEOUT=60s
+
+# Route 3: External redirect
+ROUTE_3_PATH=/dashboard
+ROUTE_3_REDIRECT=https://example.com/dashboard
+ROUTE_3_REDIRECT_CODE=302
 ```
 
 #### Route options
@@ -82,10 +90,16 @@ ROUTE_2_TIMEOUT=60s
 |----------|-------------|---------|
 | `ROUTE_N_PATH` | URL path to proxy | - |
 | `ROUTE_N_DEST` | Destination address (`http://` or `https://`) | - |
+| `ROUTE_N_REDIRECT` | Client redirect target URL (uses `return`) | - |
+| `ROUTE_N_REDIRECT_CODE` | Redirect status code (for example `301`, `302`, `307`, `308`) | `302` |
 | `ROUTE_N_HEADERS` | Additional request headers | - |
 | `ROUTE_N_STRIP_PREFIX` | Remove the path prefix before proxying | false |
 | `ROUTE_N_REWRITE` | NGINX rewrite rule | - |
 | `ROUTE_N_TIMEOUT` | Proxy read timeout | 30s |
+| `ROUTE_N_PROXY_SSL_VERIFY` | Enable/disable TLS cert validation to HTTPS upstream (`on`/`off`) | NGINX default |
+| `ROUTE_N_PROXY_SSL_SERVER_NAME` | Send SNI to HTTPS upstream (`on`/`off`) | NGINX default |
+| `ROUTE_N_PROXY_SSL_NAME` | Explicit TLS server name used for certificate validation/SNI | - |
+| `ROUTE_N_HOST` | Override `Host` header sent to upstream | - |
 
 ### Global environment variables
 
@@ -138,6 +152,43 @@ docker run -p 8080:8080 \
   -e ROUTE_1_DEST="http://backend:8080/" \
   -e ROUTE_1_HEADERS="Authorization: Bearer token123, X-Client-ID: mobile" \
   ghcr.io/arnegns/dynamic-nginx-proxy:latest
+```
+
+### Redirect instead of proxy
+
+```bash
+docker run -p 8080:8080 \
+  -e ROUTE_1_PATH="/dashboard" \
+  -e ROUTE_1_REDIRECT="https://example.com/dashboard" \
+  -e ROUTE_1_REDIRECT_CODE="302" \
+  ghcr.io/arnegns/dynamic-nginx-proxy:latest
+```
+
+### Local start with HTTPS upstream without certificate error
+
+This example enables SNI and sets the upstream host explicitly, which is
+usually required for public HTTPS endpoints.
+
+```bash
+docker build -t dynamic-nginx-proxy:dev .
+
+docker run --rm -p 8080:8080 \
+  -e ROUTE_1_PATH="/google" \
+  -e ROUTE_1_DEST="https://google.de/" \
+  -e ROUTE_1_STRIP_PREFIX="true" \
+  -e ROUTE_1_PROXY_SSL_SERVER_NAME="on" \
+  -e ROUTE_1_PROXY_SSL_NAME="google.de" \
+  -e ROUTE_1_HOST="google.de" \
+  dynamic-nginx-proxy:dev
+```
+
+Then open `http://localhost:8080/google`.
+
+If your network does TLS inspection (corporate proxy), you may still see
+certificate errors. For local testing only, you can disable verification:
+
+```bash
+-e ROUTE_1_PROXY_SSL_VERIFY="off"
 ```
 
 ## 🤝 Contributing

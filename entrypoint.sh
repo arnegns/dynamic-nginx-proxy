@@ -3,33 +3,58 @@ set -e
 
 ROUTES_CONFIG=""
 
+# Safe environment lookup: returns empty string for unset vars without failing
+# under `set -e`.
+get_env() {
+    eval "printf '%s' \"\${$1-}\""
+}
+
 # collect all environment variables named ROUTE_<number>_PATH and generate
 # a corresponding nginx `location` block for each.
 
 for var in $(env | grep -oE '^ROUTE_[0-9]+_PATH' | sort); do
     index=$(echo "$var" | grep -oE '[0-9]+')
 
-    path=$(printenv ROUTE_${index}_PATH)
-    dest=$(printenv ROUTE_${index}_DEST)
+    path=$(get_env ROUTE_${index}_PATH)
+    dest=$(get_env ROUTE_${index}_DEST)
+    redirect=$(get_env ROUTE_${index}_REDIRECT)
+    redirect_code=$(get_env ROUTE_${index}_REDIRECT_CODE)
 
-    if [ -z "$path" ] || [ -z "$dest" ]; then
-        echo "⚠ Route $index incomplete (PATH or DEST missing)"
+    if [ -z "$path" ] || { [ -z "$dest" ] && [ -z "$redirect" ]; }; then
+        echo "Route $index incomplete (PATH missing or neither DEST nor REDIRECT set)"
         continue
     fi
 
-    echo "▶ Generating route $index: $path → $dest"
+    if [ -z "$redirect_code" ]; then
+        redirect_code="302"
+    fi
+
+    if [ -n "$redirect" ]; then
+        echo "Generating route $index: $path -> redirect($redirect_code) $redirect"
+        block="
+        location $path {
+                return $redirect_code $redirect;
+        }
+        "
+
+        ROUTES_CONFIG="$ROUTES_CONFIG
+$block"
+        continue
+    fi
+
+    echo "Generating route $index: $path -> $dest"
 
     block="
-    location $path {
-        proxy_pass $dest;
+        location $path {
+                proxy_pass $dest;
     "
 
     for kv in $(env | grep -oE "^ROUTE_${index}_[A-Z0-9_]+" | sort); do
         key=$(echo "$kv" | sed -E "s/ROUTE_${index}_//")
-        val=$(printenv "$kv")
+        val=$(get_env "$kv")
 
         case "$key" in
-            DEST|PATH)
+            DEST|PATH|REDIRECT|REDIRECT_CODE)
                 ;; # already handled
 
             HEADERS)
@@ -38,14 +63,15 @@ for var in $(env | grep -oE '^ROUTE_[0-9]+_PATH' | sort); do
                     header_name=$(echo "$header" | awk '{print $1}')
                     header_value=$(echo "$header" | awk '{$1=""; print substr($0,2)}')
                     block="$block
-        proxy_set_header $header_name $header_value;"
+                proxy_set_header $header_name $header_value;"
                 done
                 ;;
 
             STRIP_PREFIX)
                 if [ "$val" = "true" ]; then
                     block="$block
-        rewrite ^$path(.*)$ \$1 break;"
+                rewrite ^$path$ / break;
+                rewrite ^$path/(.*)$ /\$1 break;"
                 fi
                 ;;
 
@@ -53,25 +79,46 @@ for var in $(env | grep -oE '^ROUTE_[0-9]+_PATH' | sort); do
                 reg=$(echo "$val" | awk '{print $1}')
                 rep=$(echo "$val" | awk '{$1=""; print substr($0,2)}')
                 block="$block
-        rewrite $reg $rep;"
+                rewrite $reg $rep;"
                 ;;
-            
+
             TIMEOUT)
                 block="$block
-        proxy_read_timeout $val;"
+                proxy_read_timeout $val;"
+                ;;
+
+            PROXY_SSL_VERIFY)
+                block="$block
+                proxy_ssl_verify $val;"
+                ;;
+
+            PROXY_SSL_SERVER_NAME)
+                block="$block
+                proxy_ssl_server_name $val;"
+                ;;
+
+            PROXY_SSL_NAME)
+                block="$block
+                proxy_ssl_name $val;"
+                ;;
+
+            HOST)
+                block="$block
+                proxy_set_header Host $val;"
                 ;;
 
             *)
+                directive=$(echo "$key" | tr 'A-Z' 'a-z')
                 block="$block
-        # custom $key
-        $key $val;"
+                # custom $directive
+                $directive $val;"
                 ;;
         esac
     done
 
     block="$block
-    }
-    "
+        }
+        "
 
     ROUTES_CONFIG="$ROUTES_CONFIG
 $block"
