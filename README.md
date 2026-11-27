@@ -6,7 +6,7 @@
 A fully dynamic reverse proxy configurable via environment variables, built on NGINX.
 Ideal for microservices setups, Docker stacks, and Kubernetes clusters.
 
-Current project version: **1.1.1** (see [`VERSION`](VERSION)).
+Current project version: **1.1.2** (see [`VERSION`](VERSION)).
 The base image is pinned to NGINX **1.31.10** on Debian **13 (trixie)** with a digest;
 Dependabot checks for base image updates weekly.
 
@@ -219,14 +219,14 @@ git push origin "v$version"
 ```
 
 Once the tag is on GitHub the `docker-build.yml` workflow will execute, produce
-images tagged `1.1.1`, `1.1` (major.minor), the commit SHA and `latest`.
+images tagged `1.1.2`, `1.1` (major.minor), the commit SHA and `latest`.
 The workflow rejects release tags that do not match
 `VERSION`, and records the project version in the image's OCI version label.
 
 You can verify the build in the Actions tab and pull the newly created image:
 
 ```bash
-docker pull ghcr.io/arnegns/dynamic-nginx-proxy:1.1.1
+docker pull ghcr.io/arnegns/dynamic-nginx-proxy:1.1.2
 ```
 
 ### Development
