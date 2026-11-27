@@ -6,14 +6,18 @@
 A fully dynamic reverse proxy configurable via environment variables, built on NGINX.
 Ideal for microservices setups, Docker stacks, and Kubernetes clusters.
 
+Current project version: **1.1.1** (see [`VERSION`](VERSION)).
+The base image is pinned to NGINX **1.31.10** on Debian **13 (trixie)** with a digest;
+Dependabot checks for base image updates weekly.
+
 ## 🚀 Features
 
 - **Unlimited routes** using `ROUTE_1_*`, `ROUTE_2_*`, …
 - **Flexible per-route options** (headers, rewrites, timeouts, etc.)
 - **Global proxy settings** via ENV variables
-- **Minimal Alpine-based image** for fast pulls and low attack surface
+- **Debian-based image** compatible with older container seccomp profiles
 - **Zero-downtime reloads** using NGINX template engine
-- **Production-ready** - small, tested, and deterministic
+- **Production-ready** - tested and deterministic
 
 ## 📦 Installation
 
@@ -203,27 +207,44 @@ Contributions are welcome! Please follow these steps:
 
 ### Releasing
 
-The GitHub Actions workflow is configured to run on pushes to `main` and on
-any tag matching `v*`.  To create a new release and build the Docker image
-versioned accordingly, tag the repository and push the tag:
+The GitHub Actions workflow builds pull requests, pushes to `main`, and any tag
+matching `v*`. Images are published only for release tags. To create a new
+release, update `VERSION` and the version above in a pull request. After merging,
+tag the merged commit with the matching version and push the tag:
 
 ```sh
-git tag v1.0.0          # adjust semver as needed
-# optionally add a lightweight or annotated message: git tag -a v1.0.0 -m "First release"
-git push origin v1.0.0
+version="$(cat VERSION)"
+git tag "v$version"
+git push origin "v$version"
 ```
 
 Once the tag is on GitHub the `docker-build.yml` workflow will execute, produce
-images tagged `v1.0.0`, `1.0` (major.minor), the commit SHA and `latest` if
-the tag points at `main`.
+images tagged `1.1.1`, `1.1` (major.minor), the commit SHA and `latest`.
+The workflow rejects release tags that do not match
+`VERSION`, and records the project version in the image's OCI version label.
 
 You can verify the build in the Actions tab and pull the newly created image:
 
 ```bash
-docker pull ghcr.io/arnegns/dynamic-nginx-proxy:v1.0.0
+docker pull ghcr.io/arnegns/dynamic-nginx-proxy:1.1.1
 ```
 
 ### Development
+
+The Debian base avoids a [musl 1.2.6 compatibility issue](https://github.com/nginx/docker-nginx/issues/1059)
+where runtimes that deny `pwritev2` prevent NGINX from writing its PID file
+(`pwrite() "/run/nginx.pid" failed (1: Operation not permitted)`).
+
+Run the container smoke tests with Docker and Python 3:
+
+```bash
+docker build -t dynamic-nginx-proxy:test .
+TEST_IMAGE=dynamic-nginx-proxy:test python3 tests/smoke.py
+TEST_IMAGE=dynamic-nginx-proxy:test TEST_DENY_PWRITEV2=1 python3 tests/smoke.py
+```
+
+The second run uses a temporary test profile to deny only `pwritev2`, reproducing
+the affected runtime's syscall failure. CI runs both checks before publishing.
 
 ```bash
 # build the image locally
@@ -249,7 +270,7 @@ Arne Gnisa - [@arnegns](https://github.com/arnegns)
 ## 🙏 Acknowledgements
 
 - [NGINX](https://nginx.org/) – The High Performance Web Server
-- Alpine Linux – Minimal and efficient Docker base image
+- Debian – Compatible and maintained Docker base image
 
 ## 📞 Support
 

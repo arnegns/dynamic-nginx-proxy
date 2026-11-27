@@ -5,6 +5,7 @@
 README.md
 LICENSE
 examples
+tests
 .vscode
 .idea
 *.log

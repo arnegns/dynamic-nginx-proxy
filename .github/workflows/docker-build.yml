@@ -1,6 +1,7 @@
 name: Docker Image CI
 
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -22,6 +23,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Read project version
+        id: version
+        run: |
+          version="$(cat VERSION)"
+          if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "VERSION must contain a semantic version (major.minor.patch)" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Release tag must match VERSION (v$version)" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -38,16 +53,36 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
 
-      - name: Build and push Docker image
+      - name: Build Docker image for smoke tests
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          load: true
+          tags: dynamic-nginx-proxy:test
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test startup and proxy routes
+        env:
+          TEST_IMAGE: dynamic-nginx-proxy:test
+        run: |
+          python3 tests/smoke.py
+          TEST_DENY_PWRITEV2=1 python3 tests/smoke.py
+
+      - name: Publish Docker image
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
